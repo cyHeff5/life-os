@@ -1,12 +1,42 @@
 import { useState, useRef } from 'react'
 import { api } from '../api/client'
 
+const SPRITES = {
+  idle:     '/sprites/Alter_Ego_Sprite_Danganronpa_1_291.webp',
+  thinking: '/sprites/Alter_Ego_Sprite_Danganronpa_1_294.webp',
+  talking:  '/sprites/Alter_Ego_Sprite_Danganronpa_1_29.webp',
+}
+
+function Avatar({ state }) {
+  const src = SPRITES[state] || SPRITES.idle
+  return (
+    <div className="relative flex-shrink-0">
+      <img
+        src={src}
+        alt="avatar"
+        key={src}
+        className="w-full"
+        style={{ imageRendering: 'pixelated' }}
+      />
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ boxShadow: 'inset 0 0 20px rgba(0,160,160,0.15)' }} />
+    </div>
+  )
+}
+
 export function AiPanel({ app, onClose }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [avatarState, setAvatarState] = useState('idle')
   const [showLog, setShowLog] = useState(false)
+  const [showSprite, setShowSprite] = useState(() => localStorage.getItem('ai_sprite') !== 'hidden')
   const talkTimerRef = useRef(null)
+
+  const toggleSprite = (val) => {
+    setShowSprite(val)
+    localStorage.setItem('ai_sprite', val ? 'visible' : 'hidden')
+  }
 
   const send = async () => {
     const text = input.trim()
@@ -14,11 +44,16 @@ export function AiPanel({ app, onClose }) {
     setMessages(prev => [...prev, { role: 'user', content: text }])
     setInput('')
     setLoading(true)
+    setAvatarState('thinking')
+    clearTimeout(talkTimerRef.current)
     try {
       const { response } = await api.chat(app, text)
       setMessages(prev => [...prev, { role: 'assistant', content: response }])
+      setAvatarState('talking')
+      talkTimerRef.current = setTimeout(() => setAvatarState('idle'), 5000)
     } catch (e) {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Fehler: ' + e.message }])
+      setAvatarState('idle')
     } finally {
       setLoading(false)
     }
@@ -84,6 +119,25 @@ export function AiPanel({ app, onClose }) {
           </div>
         )}
       </div>
+
+      {/* Avatar */}
+      {showSprite && (
+        <div className="flex-shrink-0 relative">
+          <Avatar state={avatarState} />
+          <button
+            onClick={() => toggleSprite(false)}
+            className="absolute bottom-2 right-2 text-[11px] text-[#1a4040] hover:text-[#5aacac] border border-[#1a4040] px-1.5 py-0.5 bg-[#080e0e] transition-colors"
+          >hide</button>
+        </div>
+      )}
+      {!showSprite && (
+        <div className="flex-shrink-0 flex justify-end px-2 py-1 border-t border-[#0f2828]">
+          <button
+            onClick={() => toggleSprite(true)}
+            className="text-[11px] text-[#1a4040] hover:text-[#5aacac] border border-[#1a4040] px-1.5 py-0.5 transition-colors"
+          >show sprite</button>
+        </div>
+      )}
 
       {/* Input */}
       <div className="flex border-t border-[#0f2828] flex-shrink-0">
