@@ -14,8 +14,8 @@ export function Home() {
   return (
     <div className="min-h-screen bg-[#050909] flex flex-col items-center justify-center p-8">
       <div className="mb-12 text-center">
-        <p className="text-[11px] uppercase tracking-[0.6em] text-[#1a4040] mb-2">── system ──</p>
-        <h1 className="text-[22px] uppercase tracking-[0.5em] text-[#00a0a0]">OS</h1>
+        <p className="text-[11px] uppercase tracking-[0.6em] text-[#1a4040] mb-2">── personal ──</p>
+        <h1 className="text-[22px] uppercase tracking-[0.5em] text-[#00a0a0]">LIFE OS</h1>
       </div>
 
       <div className="grid grid-cols-3 gap-4 w-full max-w-[480px]">

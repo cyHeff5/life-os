@@ -32,8 +32,8 @@ function Login({ onLogin }) {
     <div className="min-h-screen bg-[#050909] flex items-center justify-center">
       <div className="border border-[#1a4040] p-8 w-72">
         <div className="mb-8 text-center">
-          <p className="text-[11px] uppercase tracking-[0.6em] text-[#1a4040] mb-1">── system ──</p>
-          <h1 className="text-[18px] uppercase tracking-[0.5em] text-[#00a0a0]">OS</h1>
+          <p className="text-[11px] uppercase tracking-[0.6em] text-[#1a4040] mb-1">── personal ──</p>
+          <h1 className="text-[18px] uppercase tracking-[0.5em] text-[#00a0a0]">LIFE OS</h1>
         </div>
         <form onSubmit={handleSubmit}>
           <input

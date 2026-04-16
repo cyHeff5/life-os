@@ -12,8 +12,8 @@ export function AppShell({ app, label, children }) {
       <div className="flex items-center gap-4 px-5 py-3 border-b border-[#0f2828] flex-shrink-0">
         <button
           onClick={() => navigate('/')}
-          className="text-[11px] uppercase tracking-[0.3em] text-[#1a4040] hover:text-[#5aacac] transition-colors"
-        >← OS</button>
+          className="text-[13px] uppercase tracking-[0.2em] text-[#2a6060] hover:text-[#5aacac] transition-colors px-2 py-1 border border-transparent hover:border-[#1a4040]"
+        >← Life OS</button>
         <span className="text-[11px] text-[#0f2828]">/</span>
         <span className="text-[13px] uppercase tracking-[0.3em] text-[#00a0a0]">{label}</span>
       </div>

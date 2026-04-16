@@ -9,7 +9,13 @@ from ai.registry import get_tools, execute_tool
 from ai.prompts import SYSTEM_PROMPT, APP_CONTEXTS
 from models import ChatMessage
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+_client = None
+
+def get_client():
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    return _client
 
 MAX_ITERATIONS = 10
 MAX_HISTORY = 10
@@ -49,7 +55,7 @@ def _run_loop(system: str, tools: list, messages: list, app: str, db: Session) -
         api_kwargs["tools"] = cached
 
     for _ in range(MAX_ITERATIONS):
-        response = client.messages.create(**api_kwargs)
+        response = get_client().messages.create(**api_kwargs)
 
         if response.stop_reason == "end_turn" or not tools:
             return _extract_text(response)
