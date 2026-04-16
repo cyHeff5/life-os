@@ -42,4 +42,22 @@ export const api = {
 
   deleteChatMessage: (id) =>
     request(`/chat/message/${id}`, { method: 'DELETE' }),
+
+  // Calendar
+  getCalendarEvents: (start, end) =>
+    request(`/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
+  createCalendarEvent: (data) =>
+    request('/calendar/events', { method: 'POST', body: JSON.stringify(data) }),
+  updateCalendarEvent: (id, data) =>
+    request(`/calendar/events/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteCalendarEvent: (id) =>
+    request(`/calendar/events/${id}`, { method: 'DELETE' }),
+
+  // Work Packages (placeholder)
+  getWorkPackages: () =>
+    request('/calendar/work-packages'),
+  createWorkPackage: (data) =>
+    request('/calendar/work-packages', { method: 'POST', body: JSON.stringify(data) }),
+  deleteWorkPackage: (id) =>
+    request(`/calendar/work-packages/${id}`, { method: 'DELETE' }),
 }
