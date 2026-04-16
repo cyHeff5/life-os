@@ -53,11 +53,31 @@ export const api = {
   deleteCalendarEvent: (id) =>
     request(`/calendar/events/${id}`, { method: 'DELETE' }),
 
-  // Work Packages (placeholder)
+  // Calendar sidebar work packages (from projects)
   getWorkPackages: () =>
     request('/calendar/work-packages'),
-  createWorkPackage: (data) =>
-    request('/calendar/work-packages', { method: 'POST', body: JSON.stringify(data) }),
-  deleteWorkPackage: (id) =>
-    request(`/calendar/work-packages/${id}`, { method: 'DELETE' }),
+
+  // Projects
+  getProjects: () =>
+    request('/projects/'),
+  createProject: (data) =>
+    request('/projects/', { method: 'POST', body: JSON.stringify(data) }),
+  deleteProject: (id) =>
+    request(`/projects/${id}`, { method: 'DELETE' }),
+
+  // Work Areas
+  getAreas: (projectId) =>
+    request(`/projects/${projectId}/areas`),
+  createArea: (projectId, data) =>
+    request(`/projects/${projectId}/areas`, { method: 'POST', body: JSON.stringify(data) }),
+  deleteArea: (areaId) =>
+    request(`/projects/areas/${areaId}`, { method: 'DELETE' }),
+
+  // Work Packages (project)
+  createPackage: (areaId, data) =>
+    request(`/projects/areas/${areaId}/packages`, { method: 'POST', body: JSON.stringify(data) }),
+  updatePackage: (wpId, data) =>
+    request(`/projects/packages/${wpId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePackage: (wpId) =>
+    request(`/projects/packages/${wpId}`, { method: 'DELETE' }),
 }

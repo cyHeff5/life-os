@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from database import get_db
-from models import CalendarEvent, WorkPackage
+from models import CalendarEvent, WorkPackage, Project
 from dependencies import require_auth
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
@@ -41,14 +41,9 @@ class EventUpdate(BaseModel):
 class WorkPackageOut(BaseModel):
     id: UUID
     title: str
-    estimated_hours: float
+    estimated_hours: Optional[float]
     color: str
-
-
-class WorkPackageCreate(BaseModel):
-    title: str
-    estimated_hours: float = 1.0
-    color: str = "#00a0a0"
+    project_id: Optional[UUID] = None
 
 
 # ── Calendar Events ───────────────────────────────────────────────────────────
@@ -104,26 +99,21 @@ def delete_event(event_id: UUID, db: Session = Depends(get_db), _=Depends(requir
     db.commit()
 
 
-# ── Work Packages (placeholder) ───────────────────────────────────────────────
+# ── Work Packages (for Calendar sidebar) ──────────────────────────────────────
 
 @router.get("/work-packages", response_model=list[WorkPackageOut])
 def get_work_packages(db: Session = Depends(get_db), _=Depends(require_auth)):
-    return db.query(WorkPackage).filter(WorkPackage.is_scheduled == False).order_by(WorkPackage.created_at).all()  # noqa
-
-
-@router.post("/work-packages", response_model=WorkPackageOut)
-def create_work_package(data: WorkPackageCreate, db: Session = Depends(get_db), _=Depends(require_auth)):
-    wp = WorkPackage(**data.model_dump())
-    db.add(wp)
-    db.commit()
-    db.refresh(wp)
-    return wp
-
-
-@router.delete("/work-packages/{wp_id}", status_code=204)
-def delete_work_package(wp_id: UUID, db: Session = Depends(get_db), _=Depends(require_auth)):
-    wp = db.query(WorkPackage).filter(WorkPackage.id == wp_id).first()
-    if not wp:
-        raise HTTPException(status_code=404, detail="Not found")
-    db.delete(wp)
-    db.commit()
+    """Returns unscheduled, not-done WPs from all active projects."""
+    active_project_ids = [
+        p.id for p in db.query(Project).filter(Project.status == "active").all()
+    ]
+    return (
+        db.query(WorkPackage)
+        .filter(
+            WorkPackage.project_id.in_(active_project_ids),
+            WorkPackage.is_scheduled == False,  # noqa
+            WorkPackage.status != "done",
+        )
+        .order_by(WorkPackage.created_at)
+        .all()
+    )

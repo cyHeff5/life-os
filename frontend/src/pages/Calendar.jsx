@@ -1,33 +1,56 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { AppShell } from '../components/AppShell'
 import { api } from '../api/client'
 
 // ── Constants ──────────────────────────────────────────────────────────────
-const HOUR_HEIGHT = 64       // px per hour
+const HOUR_HEIGHT = 64
+const SNAP_PX     = HOUR_HEIGHT / 4          // 15-min snap
 const START_HOUR  = 7
 const END_HOUR    = 23
 const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i)
 
 const VIEWS = [
-  { id: 'today',  label: 'Heute'   },
-  { id: '3days',  label: '3 Tage'  },
-  { id: 'week',   label: 'Woche'   },
+  { id: 'today',  label: 'Heute'  },
+  { id: '3days',  label: '3 Tage' },
+  { id: 'week',   label: 'Woche'  },
 ]
 
 const DE_DAYS  = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
 const DE_MONTH = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez']
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+function pad(n) { return String(n).padStart(2, '0') }
+
+// Backend returns naive datetimes (no Z) stored as UTC — force UTC parsing
+function parseDate(s) {
+  if (!s) return new Date()
+  if (s.endsWith('Z') || s.includes('+')) return new Date(s)
+  return new Date(s + 'Z')
+}
+
 function timeToY(hour, minute = 0) {
   return (hour - START_HOUR + minute / 60) * HOUR_HEIGHT
 }
 
+function snapY(y) {
+  return Math.round(y / SNAP_PX) * SNAP_PX
+}
+
 function yToTime(y) {
-  const raw  = (y / HOUR_HEIGHT) * 60
-  const hour = START_HOUR + Math.floor(raw / 60)
-  const minute = Math.round((raw % 60) / 30) * 30
-  const clampedHour = Math.max(START_HOUR, Math.min(hour, END_HOUR - 1))
-  return { hour: clampedHour, minute: minute >= 60 ? 0 : minute }
+  const snapped    = Math.max(0, snapY(y))
+  const totalMins  = (snapped / HOUR_HEIGHT) * 60
+  const rawH       = Math.floor(totalMins / 60) + START_HOUR
+  const rawM       = Math.round(totalMins % 60)
+  const hour       = rawM >= 60 ? rawH + 1 : rawH
+  const minute     = rawM >= 60 ? 0 : rawM
+  return { hour: Math.min(hour, END_HOUR - 1), minute }
+}
+
+function isoDay(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 function getViewDays(view, anchor) {
@@ -35,7 +58,6 @@ function getViewDays(view, anchor) {
   d.setHours(0, 0, 0, 0)
   if (view === 'today') return [new Date(d)]
   if (view === '3days') return [0, 1, 2].map(i => { const x = new Date(d); x.setDate(x.getDate() + i); return x })
-  // week — start on Monday
   const dow  = d.getDay()
   const diff = dow === 0 ? -6 : 1 - dow
   d.setDate(d.getDate() + diff)
@@ -59,15 +81,6 @@ function formatRange(view, days) {
   if (first.getMonth() === last.getMonth())
     return `${first.getDate()}. – ${last.getDate()}. ${DE_MONTH[first.getMonth()]}`
   return `${first.getDate()}. ${DE_MONTH[first.getMonth()]} – ${last.getDate()}. ${DE_MONTH[last.getMonth()]}`
-}
-
-function isoDay(date) {
-  return date.toISOString().slice(0, 10)
-}
-
-function parseDT(isoString) {
-  const d = new Date(isoString)
-  return { date: isoDay(d), hour: d.getHours(), minute: d.getMinutes(), durationMin: 0 }
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────
@@ -96,26 +109,60 @@ function WorkPackageCard({ wp, onDelete }) {
   )
 }
 
-function CalendarEventBlock({ event, onDelete }) {
-  const start     = new Date(event.start_time)
-  const end       = new Date(event.end_time)
-  const top       = timeToY(start.getHours(), start.getMinutes())
-  const height    = Math.max(((end - start) / 60000) * (HOUR_HEIGHT / 60), 20)
+function CalendarEventBlock({
+  event, overrideTop, overrideHeight,
+  isMoving, isResizing,
+  onDelete, onStartMove, onStartResize,
+}) {
+  const origStart = parseDate(event.start_time)
+  const origEnd   = parseDate(event.end_time)
+  const duration  = origEnd - origStart   // ms
+
+  const top    = overrideTop    ?? timeToY(origStart.getHours(), origStart.getMinutes())
+  const height = overrideHeight ?? Math.max(SNAP_PX, (duration / 3600000) * HOUR_HEIGHT)
+
+  // Live start/end labels during interaction
+  const { hour: sh, minute: sm } = yToTime(top)
+  let eh, em
+  if (isResizing && overrideHeight != null) {
+    const endD = new Date(origStart.getTime() + (overrideHeight / HOUR_HEIGHT) * 3600000)
+    eh = endD.getHours(); em = endD.getMinutes()
+  } else if (isMoving) {
+    const endMins = sh * 60 + sm + duration / 60000
+    eh = Math.floor(endMins / 60) % 24
+    em = endMins % 60
+  } else {
+    eh = origEnd.getHours(); em = origEnd.getMinutes()
+  }
 
   return (
     <div
-      className="absolute left-1 right-1 rounded-sm px-1.5 py-0.5 overflow-hidden group cursor-pointer"
+      className={`absolute left-1 right-1 rounded-sm px-1.5 py-0.5 overflow-hidden group select-none ${
+        isMoving ? 'opacity-70 z-20 cursor-grabbing' : 'z-10 cursor-grab'
+      }`}
       style={{ top, height, backgroundColor: event.color + '22', borderLeft: `2px solid ${event.color}` }}
+      onMouseDown={(e) => { if (e.button === 0) onStartMove(e) }}
     >
-      <p className="text-[11px] text-[#00cccc] truncate leading-tight">{event.title}</p>
-      <p className="text-[10px] text-[#2a6060]">
-        {start.getHours().toString().padStart(2,'0')}:{start.getMinutes().toString().padStart(2,'0')} –{' '}
-        {end.getHours().toString().padStart(2,'0')}:{end.getMinutes().toString().padStart(2,'0')}
+      <p className="text-[11px] text-[#00cccc] truncate leading-tight pointer-events-none">{event.title}</p>
+      <p className="text-[10px] pointer-events-none">
+        {(isMoving || isResizing)
+          ? <span className="text-[#00cccc]">{pad(sh)}:{pad(sm)} – {pad(eh)}:{pad(em)}</span>
+          : <span className="text-[#2a6060]">
+              {pad(origStart.getHours())}:{pad(origStart.getMinutes())} –{' '}
+              {pad(origEnd.getHours())}:{pad(origEnd.getMinutes())}
+            </span>
+        }
       </p>
       <button
-        onClick={() => onDelete(event.id)}
-        className="absolute top-0.5 right-1 opacity-0 group-hover:opacity-100 text-[#cc2222] text-[10px] transition-all"
+        onClick={(e) => { e.stopPropagation(); onDelete(event.id) }}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="absolute top-0.5 right-1 opacity-0 group-hover:opacity-100 text-[#cc2222] text-[10px] transition-all z-30"
       >✕</button>
+      {/* Resize handle */}
+      <div
+        className="absolute bottom-0 left-0 right-0 h-2 cursor-s-resize z-20"
+        onMouseDown={(e) => { e.stopPropagation(); if (e.button === 0) onStartResize(e) }}
+      />
     </div>
   )
 }
@@ -126,33 +173,52 @@ export function Calendar() {
   const [anchor, setAnchor]       = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d })
   const [events, setEvents]       = useState([])
   const [workPackages, setWPs]    = useState([])
-  const [dragOver, setDragOver]   = useState(null) // { dayKey, hour, minute }
+  const [dragOver, setDragOver]   = useState(null)   // { dayKey, hour, minute } — WP drag preview
   const [newWP, setNewWP]         = useState('')
-  const gridRef = useRef(null)
+  // Move state
+  const [moving, setMoving]       = useState(null)   // { event, grabOffsetY }
+  const [movePos, setMovePos]     = useState(null)   // { top, dayKey }
+  // Resize state
+  const [resizing, setResizing]   = useState(null)   // { event }
+  const [resizeHeight, setResizeHeight] = useState(null)
+
+  const gridRef    = useRef(null)
+  const dayColRefs = useRef({})   // dayKey → DOM element
 
   const days = getViewDays(view, anchor)
 
-  // Load events when range changes
+  // ── Data loading ──
   useEffect(() => {
     const start = days[0].toISOString()
     const end   = new Date(days[days.length - 1].getTime() + 86400000).toISOString()
     api.getCalendarEvents(start, end).then(setEvents).catch(() => {})
   }, [view, anchor.toDateString()])
 
-  // Load work packages once
   useEffect(() => {
     api.getWorkPackages().then(setWPs).catch(() => {})
   }, [])
 
-  // ── Drop handling ──
+  // ── Coordinate helpers ──
+  const getGridY = useCallback((clientY) => {
+    if (!gridRef.current) return 0
+    const rect = gridRef.current.getBoundingClientRect()
+    return clientY - rect.top + gridRef.current.scrollTop
+  }, [])
+
+  const getDayAtX = useCallback((clientX) => {
+    for (const [key, el] of Object.entries(dayColRefs.current)) {
+      if (!el) continue
+      const rect = el.getBoundingClientRect()
+      if (clientX >= rect.left && clientX <= rect.right) return key
+    }
+    return null
+  }, [])
+
+  // ── WP drop handling ──
   const handleDragOver = (e, dayKey) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
-    if (!gridRef.current) return
-    const rect     = gridRef.current.getBoundingClientRect()
-    const scrollTop = gridRef.current.scrollTop
-    const relY     = e.clientY - rect.top + scrollTop
-    const { hour, minute } = yToTime(relY)
+    const { hour, minute } = yToTime(getGridY(e.clientY))
     setDragOver({ dayKey, hour, minute })
   }
 
@@ -160,35 +226,116 @@ export function Calendar() {
     e.preventDefault()
     setDragOver(null)
     const wp = JSON.parse(e.dataTransfer.getData('application/json'))
-    if (!gridRef.current) return
-    const rect      = gridRef.current.getBoundingClientRect()
-    const scrollTop = gridRef.current.scrollTop
-    const relY      = e.clientY - rect.top + scrollTop
-    const { hour, minute } = yToTime(relY)
+    const { hour, minute } = yToTime(getGridY(e.clientY))
 
     const startTime = new Date(day)
     startTime.setHours(hour, minute, 0, 0)
     const endTime = new Date(startTime.getTime() + (wp.estimated_hours || 1) * 3600000)
 
-    const event = await api.createCalendarEvent({
-      title: wp.title,
-      start_time: startTime.toISOString(),
-      end_time: endTime.toISOString(),
-      color: wp.color || '#00a0a0',
-      work_package_id: wp.id,
-    })
-    setEvents(prev => [...prev, event])
+    const tempId    = `temp-${Date.now()}`
+    const tempEvent = {
+      id: tempId, title: wp.title,
+      start_time: startTime.toISOString(), end_time: endTime.toISOString(),
+      color: wp.color || '#00a0a0', work_package_id: wp.id,
+    }
+    setEvents(prev => [...prev, tempEvent])
     setWPs(prev => prev.filter(w => w.id !== wp.id))
+
+    try {
+      const created = await api.createCalendarEvent({
+        title: wp.title,
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        color: wp.color || '#00a0a0',
+        work_package_id: wp.id,
+      })
+      setEvents(prev => prev.map(ev => ev.id === tempId ? created : ev))
+    } catch {
+      setEvents(prev => prev.filter(ev => ev.id !== tempId))
+      setWPs(prev => [...prev, wp])
+    }
   }
 
+  // ── Move / Resize ──
+  const startMove = useCallback((e, event) => {
+    const y       = getGridY(e.clientY)
+    const origTop = timeToY(parseDate(event.start_time).getHours(), parseDate(event.start_time).getMinutes())
+    setMoving({ event, grabOffsetY: y - origTop })
+    setMovePos({ top: origTop, dayKey: isoDay(parseDate(event.start_time)) })
+  }, [getGridY])
+
+  const startResize = useCallback((e, event) => {
+    const dur = parseDate(event.end_time) - parseDate(event.start_time)
+    setResizing({ event })
+    setResizeHeight(Math.max(SNAP_PX, (dur / 3600000) * HOUR_HEIGHT))
+  }, [])
+
+  const handleMouseMove = useCallback((e) => {
+    const y = getGridY(e.clientY)
+    if (moving) {
+      const raw     = Math.max(0, y - moving.grabOffsetY)
+      const snapped = Math.min(snapY(raw), (END_HOUR - START_HOUR) * HOUR_HEIGHT - SNAP_PX)
+      const dayKey  = getDayAtX(e.clientX) ?? movePos?.dayKey
+      setMovePos({ top: snapped, dayKey })
+    }
+    if (resizing) {
+      const origTop = timeToY(
+        parseDate(resizing.event.start_time).getHours(),
+        parseDate(resizing.event.start_time).getMinutes()
+      )
+      const snapped = Math.max(SNAP_PX, snapY(y - origTop))
+      setResizeHeight(snapped)
+    }
+  }, [moving, resizing, getGridY, getDayAtX, movePos])
+
+  const handleMouseUp = useCallback(async () => {
+    if (moving && movePos) {
+      const { hour, minute } = yToTime(movePos.top)
+      const dur = parseDate(moving.event.end_time) - parseDate(moving.event.start_time)
+      const [yr, mo, dy] = movePos.dayKey.split('-').map(Number)
+      const newStart = new Date(yr, mo - 1, dy, hour, minute, 0, 0)
+      const newEnd   = new Date(newStart.getTime() + dur)
+      setEvents(prev => prev.map(ev =>
+        ev.id === moving.event.id
+          ? { ...ev, start_time: newStart.toISOString(), end_time: newEnd.toISOString() }
+          : ev
+      ))
+      api.updateCalendarEvent(moving.event.id, {
+        start_time: newStart.toISOString(),
+        end_time: newEnd.toISOString(),
+      }).catch(() => {})
+    }
+    if (resizing && resizeHeight != null) {
+      const origStart = parseDate(resizing.event.start_time)
+      const newEnd    = new Date(origStart.getTime() + (resizeHeight / HOUR_HEIGHT) * 3600000)
+      setEvents(prev => prev.map(ev =>
+        ev.id === resizing.event.id
+          ? { ...ev, end_time: newEnd.toISOString() }
+          : ev
+      ))
+      api.updateCalendarEvent(resizing.event.id, { end_time: newEnd.toISOString() }).catch(() => {})
+    }
+    setMoving(null); setMovePos(null)
+    setResizing(null); setResizeHeight(null)
+  }, [moving, movePos, resizing, resizeHeight])
+
+  // Attach window listeners only while dragging
+  useEffect(() => {
+    if (!moving && !resizing) return
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [moving, resizing, handleMouseMove, handleMouseUp])
+
+  // ── CRUD helpers ──
   const deleteEvent = async (id) => {
     const event = events.find(e => e.id === id)
     await api.deleteCalendarEvent(id)
     setEvents(prev => prev.filter(e => e.id !== id))
-    // If it had a work package, reload WPs
-    if (event?.work_package_id) {
-      api.getWorkPackages().then(setWPs).catch(() => {})
-    }
+    if (event?.work_package_id) api.getWorkPackages().then(setWPs).catch(() => {})
   }
 
   const deleteWP = async (id) => {
@@ -205,14 +352,21 @@ export function Calendar() {
 
   const eventsForDay = (day) => {
     const key = isoDay(day)
-    return events.filter(ev => isoDay(new Date(ev.start_time)) === key)
+    return events.filter(ev => {
+      if (moving && ev.id === moving.event.id) return false   // rendered as ghost in target column
+      return isoDay(parseDate(ev.start_time)) === key
+    })
   }
 
   const isToday = (day) => isoDay(day) === isoDay(new Date())
 
   return (
     <AppShell app="calendar" label="Kalender">
-      <div className="flex h-[calc(100vh-44px)] overflow-hidden">
+      <div
+        className="flex h-[calc(100vh-44px)] overflow-hidden"
+        style={{ cursor: moving ? 'grabbing' : resizing ? 'ns-resize' : undefined,
+                 userSelect: (moving || resizing) ? 'none' : undefined }}
+      >
 
         {/* ── Left Panel ── */}
         <div className="w-[220px] flex-shrink-0 border-r border-[#0f2828] flex flex-col bg-[#050909]">
@@ -248,12 +402,11 @@ export function Calendar() {
           </div>
 
           {/* Ungeplant */}
-          <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col min-h-0">
             <div className="px-3 pt-3 pb-2 flex-shrink-0">
               <p className="text-[11px] uppercase tracking-[0.3em] text-[#1a4040]">── Ungeplant</p>
             </div>
-
-            <div className="flex-1 overflow-y-auto px-2 space-y-1">
+            <div className="flex-1 overflow-y-auto no-scrollbar px-2 space-y-1">
               {workPackages.length === 0 && (
                 <p className="text-[11px] text-[#1a4040] px-1">Keine Aufgaben.</p>
               )}
@@ -261,8 +414,6 @@ export function Calendar() {
                 <WorkPackageCard key={wp.id} wp={wp} onDelete={deleteWP} />
               ))}
             </div>
-
-            {/* Add work package */}
             <div className="px-2 py-2 border-t border-[#0f2828] flex-shrink-0">
               <input
                 value={newWP}
@@ -297,7 +448,10 @@ export function Calendar() {
           </div>
 
           {/* Scrollable grid */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden" ref={gridRef}>
+          <div
+            className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar"
+            ref={gridRef}
+          >
             <div className="flex" style={{ minHeight: HOURS.length * HOUR_HEIGHT }}>
 
               {/* Time labels */}
@@ -314,38 +468,76 @@ export function Calendar() {
               </div>
 
               {/* Day columns */}
-              {days.map(day => (
-                <div
-                  key={isoDay(day)}
-                  className="flex-1 relative border-r border-[#0f2828] last:border-r-0"
-                  style={{ minHeight: HOURS.length * HOUR_HEIGHT }}
-                  onDragOver={e => handleDragOver(e, isoDay(day))}
-                  onDragLeave={() => setDragOver(null)}
-                  onDrop={e => handleDrop(e, day)}
-                >
-                  {/* Hour lines */}
-                  {HOURS.map(h => (
-                    <div
-                      key={h}
-                      className="absolute left-0 right-0 border-t border-[#0f2828]"
-                      style={{ top: (h - START_HOUR) * HOUR_HEIGHT }}
-                    />
-                  ))}
+              {days.map(day => {
+                const dayKey = isoDay(day)
+                return (
+                  <div
+                    key={dayKey}
+                    ref={el => { dayColRefs.current[dayKey] = el }}
+                    className="flex-1 relative border-r border-[#0f2828] last:border-r-0"
+                    style={{ minHeight: HOURS.length * HOUR_HEIGHT }}
+                    onDragOver={e => handleDragOver(e, dayKey)}
+                    onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(null) }}
+                    onDrop={e => handleDrop(e, day)}
+                  >
+                    {/* Hour lines */}
+                    {HOURS.map(h => (
+                      <div
+                        key={h}
+                        className="absolute left-0 right-0 border-t border-[#0f2828]"
+                        style={{ top: (h - START_HOUR) * HOUR_HEIGHT }}
+                      />
+                    ))}
 
-                  {/* Drop indicator */}
-                  {dragOver?.dayKey === isoDay(day) && (
-                    <div
-                      className="absolute left-1 right-1 h-0.5 bg-[#00a0a0] pointer-events-none z-10"
-                      style={{ top: timeToY(dragOver.hour, dragOver.minute) }}
-                    />
-                  )}
+                    {/* WP drag: ghost block */}
+                    {dragOver?.dayKey === dayKey && (
+                      <div
+                        className="absolute left-1 right-1 rounded-sm bg-[#00a0a0] opacity-20 pointer-events-none z-10"
+                        style={{ top: timeToY(dragOver.hour, dragOver.minute), height: HOUR_HEIGHT }}
+                      />
+                    )}
 
-                  {/* Events */}
-                  {eventsForDay(day).map(event => (
-                    <CalendarEventBlock key={event.id} event={event} onDelete={deleteEvent} />
-                  ))}
-                </div>
-              ))}
+                    {/* WP drag: time indicator */}
+                    {dragOver?.dayKey === dayKey && (
+                      <div
+                        className="absolute left-0 right-0 flex items-center pointer-events-none z-20"
+                        style={{ top: timeToY(dragOver.hour, dragOver.minute) }}
+                      >
+                        <span className="text-[10px] text-[#00cccc] w-12 pl-1 flex-shrink-0 tabular-nums">
+                          {pad(dragOver.hour)}:{pad(dragOver.minute)}
+                        </span>
+                        <div className="flex-1 h-px bg-[#00cccc] opacity-60" />
+                      </div>
+                    )}
+
+                    {/* Stationary events */}
+                    {eventsForDay(day).map(event => (
+                      <CalendarEventBlock
+                        key={event.id}
+                        event={event}
+                        isResizing={resizing?.event.id === event.id}
+                        overrideHeight={resizing?.event.id === event.id ? resizeHeight : undefined}
+                        onDelete={deleteEvent}
+                        onStartMove={(e) => startMove(e, event)}
+                        onStartResize={(e) => startResize(e, event)}
+                      />
+                    ))}
+
+                    {/* Moving event ghost in target column */}
+                    {moving && movePos?.dayKey === dayKey && (
+                      <CalendarEventBlock
+                        key={`moving-${moving.event.id}`}
+                        event={moving.event}
+                        overrideTop={movePos.top}
+                        isMoving
+                        onDelete={() => {}}
+                        onStartMove={() => {}}
+                        onStartResize={() => {}}
+                      />
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>
