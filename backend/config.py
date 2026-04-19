@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_password: str = "changeme"
     jwt_secret: str = "change-this-secret"
     jwt_expire_days: int = 30
+    alpha_vantage_api_key: str = ""
 
     class Config:
         env_file = ".env"
