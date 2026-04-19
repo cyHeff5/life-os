@@ -12,8 +12,6 @@ services:
 
   backend:
     build: ./backend
-    ports:
-      - "8001:8000"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/os
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
@@ -27,6 +25,13 @@ services:
       - ./latex-docs:/latex-docs
       - ./code-projects:/code-projects:ro
     command: sh start.sh
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
 
 volumes:
   pgdata:
