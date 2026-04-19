@@ -111,7 +111,6 @@ def get_work_packages(db: Session = Depends(get_db), _=Depends(require_auth)):
         db.query(WorkPackage)
         .filter(
             WorkPackage.project_id.in_(active_project_ids),
-            WorkPackage.is_scheduled == False,  # noqa
             WorkPackage.status != "done",
         )
         .order_by(WorkPackage.created_at)

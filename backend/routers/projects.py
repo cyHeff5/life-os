@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -68,6 +69,13 @@ class WorkAreaOut(BaseModel):
         from_attributes = True
 
 
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    color: Optional[str] = None
+    status: Optional[str] = None
+
+
 class WorkPackageCreate(BaseModel):
     title: str
     description: Optional[str] = None
@@ -102,11 +110,11 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db), _=Depends
 
 
 @router.patch("/{project_id}", response_model=ProjectOut)
-def update_project(project_id: UUID, data: dict, db: Session = Depends(get_db), _=Depends(require_auth)):
+def update_project(project_id: UUID, data: ProjectUpdate, db: Session = Depends(get_db), _=Depends(require_auth)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404)
-    for k, v in data.items():
+    for k, v in data.model_dump(exclude_none=True).items():
         setattr(project, k, v)
     db.commit()
     db.refresh(project)
@@ -132,10 +140,13 @@ def list_areas(project_id: UUID, db: Session = Depends(get_db), _=Depends(requir
         .order_by(WorkArea.order_index, WorkArea.created_at)
         .all()
     )
-    # Attach work packages (sorted: open first, done last)
+    area_ids = [a.id for a in areas]
+    wps_by_area: dict = defaultdict(list)
+    for wp in db.query(WorkPackage).filter(WorkPackage.work_area_id.in_(area_ids)).all():
+        wps_by_area[wp.work_area_id].append(wp)
     for area in areas:
         area.work_packages = sorted(
-            db.query(WorkPackage).filter(WorkPackage.work_area_id == area.id).all(),
+            wps_by_area[area.id],
             key=lambda wp: (1 if wp.status == "done" else 0, wp.created_at),
         )
     return areas

@@ -17,13 +17,13 @@ async function request(path, options = {}) {
 
   if (res.status === 401) {
     localStorage.removeItem('token')
-    window.location.href = '/'
+    window.location.reload()
     return
   }
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(text)
+    throw new Error(`${res.status}: ${text}`)
   }
 
   if (res.status === 204) return null
@@ -34,14 +34,19 @@ export const api = {
   login: (password) =>
     request('/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
 
-  chat: (app, message) =>
-    request('/chat/', { method: 'POST', body: JSON.stringify({ app, message }) }),
+  chat: (app, message, extraContext = null) =>
+    request('/chat/', { method: 'POST', body: JSON.stringify({ app, message, extra_context: extraContext }) }),
 
   getChatHistory: (app) =>
     request(`/chat/history/${app}`),
 
   deleteChatMessage: (id) =>
     request(`/chat/message/${id}`, { method: 'DELETE' }),
+
+  getContext: (app) =>
+    request(`/chat/context/${app}`),
+  updateContext: (app, data) =>
+    request(`/chat/context/${app}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Calendar
   getCalendarEvents: (start, end) =>
@@ -56,6 +61,66 @@ export const api = {
   // Calendar sidebar work packages (from projects)
   getWorkPackages: () =>
     request('/calendar/work-packages'),
+
+  // Docs
+  getDocProjects: () =>
+    request('/docs/projects'),
+  createDocProject: (name) =>
+    request('/docs/projects', { method: 'POST', body: JSON.stringify({ name }) }),
+  deleteDocProject: (project) =>
+    request(`/docs/projects/${project}`, { method: 'DELETE' }),
+  getDocFiles: (project) =>
+    request(`/docs/projects/${project}/files`),
+  readDocFile: (project, path) =>
+    request(`/docs/projects/${encodeURIComponent(project)}/files/${path}`),
+  writeDocFile: (project, path, content) =>
+    request(`/docs/projects/${encodeURIComponent(project)}/files/${path}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+  deleteDocFile: (project, path) =>
+    request(`/docs/projects/${encodeURIComponent(project)}/files/${path}`, { method: 'DELETE' }),
+  compileDoc: (project) =>
+    request(`/docs/projects/${encodeURIComponent(project)}/compile`, { method: 'POST' }),
+  getDocPdf: async (project) => {
+    const res = await fetch(`/api/docs/projects/${encodeURIComponent(project)}/pdf`, {
+      headers: { 'Authorization': getAuthHeader() },
+    })
+    if (!res.ok) throw new Error('PDF nicht gefunden')
+    const blob = await res.blob()
+    return URL.createObjectURL(blob)
+  },
+
+  // Fitness
+  getWorkouts: () => request('/fitness/workouts'),
+  getWorkoutsToday: (day) => request(`/fitness/workouts/today${day != null ? `?day=${day}` : ''}`),
+  createWorkout: (data) => request('/fitness/workouts', { method: 'POST', body: JSON.stringify(data) }),
+  updateWorkout: (id, data) => request(`/fitness/workouts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteWorkout: (id) => request(`/fitness/workouts/${id}`, { method: 'DELETE' }),
+  addWorkoutExercise: (workoutId, data) => request(`/fitness/workouts/${workoutId}/exercises`, { method: 'POST', body: JSON.stringify(data) }),
+  updateWorkoutExercise: (exId, data) => request(`/fitness/exercises/${exId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteWorkoutExercise: (exId) => request(`/fitness/exercises/${exId}`, { method: 'DELETE' }),
+
+  // Calories
+  getFoodLogs: (date) =>
+    request(`/calories/logs?date=${date}`),
+  createFoodLog: (data) =>
+    request('/calories/logs', { method: 'POST', body: JSON.stringify(data) }),
+  deleteFoodLog: (id) =>
+    request(`/calories/logs/${id}`, { method: 'DELETE' }),
+  scanBarcode: (barcode) =>
+    request(`/calories/scan/${barcode}`),
+  searchFood: (q) =>
+    request(`/calories/search?q=${encodeURIComponent(q)}`),
+
+  // Stocks
+  getStocks: () =>
+    request('/stocks/'),
+  searchStockSymbols: (q) =>
+    request(`/stocks/search?q=${encodeURIComponent(q)}`),
+  addStock: (symbol, name = '') =>
+    request('/stocks/', { method: 'POST', body: JSON.stringify({ symbol, name }) }),
+  deleteStock: (symbol) =>
+    request(`/stocks/${symbol}`, { method: 'DELETE' }),
+  refreshStock: (symbol) =>
+    request(`/stocks/${symbol}/refresh`, { method: 'POST' }),
 
   // Projects
   getProjects: () =>

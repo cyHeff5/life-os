@@ -13,6 +13,7 @@ body {
   color: #5aacac;
   font-family: 'Courier New', Courier, monospace;
   -webkit-font-smoothing: antialiased;
+
 }
 
 @keyframes fade-in {

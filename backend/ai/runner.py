@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ai.registry import get_tools, execute_tool
 from ai.prompts import SYSTEM_PROMPT, APP_CONTEXTS
+from ai.memory import load_context, update_context
 from models import ChatMessage
 
 _client = None
@@ -21,12 +22,21 @@ MAX_ITERATIONS = 10
 MAX_HISTORY = 10
 
 
-def chat(app: str, user_message: str, db: Session) -> str:
+def chat(app: str, user_message: str, db: Session, extra_context: str | None = None) -> str:
     now = datetime.now(ZoneInfo("Europe/Berlin"))
+
+    general_ctx, app_ctx = load_context(app, db)
+
+    app_context_str = APP_CONTEXTS.get(app, "")
+    if extra_context:
+        app_context_str += f"\n{extra_context}"
+
     system = SYSTEM_PROMPT.format(
         current_date=now.strftime("%A, %d.%m.%Y"),
         current_time=now.strftime("%H:%M"),
-        app_context=APP_CONTEXTS.get(app, ""),
+        app_context=app_context_str,
+        general_context=general_ctx or "(noch kein allgemeiner Kontext)",
+        app_specific_context=app_ctx or f"(noch kein {app}-Kontext)",
     )
 
     history = _load_history(db, app)
@@ -36,6 +46,13 @@ def chat(app: str, user_message: str, db: Session) -> str:
     response_text = _run_loop(system, tools, history, app, db)
 
     _save(db, app, user_message, response_text)
+
+    # Update memory asynchronously-ish — fire and don't block response
+    try:
+        update_context(app, user_message, response_text, db)
+    except Exception:
+        pass
+
     return response_text
 
 

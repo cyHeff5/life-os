@@ -13,16 +13,19 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/os
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       APP_PASSWORD: ${APP_PASSWORD:-changeme}
       JWT_SECRET: ${JWT_SECRET:-change-this-secret}
+      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
     depends_on:
       - db
     volumes:
       - ./backend:/app
+      - ./latex-docs:/latex-docs
+      - ./code-projects:/code-projects:ro
     command: sh start.sh
 
 volumes:

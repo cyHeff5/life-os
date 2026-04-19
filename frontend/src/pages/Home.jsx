@@ -6,6 +6,7 @@ const APPS = [
   { id: 'docs',     label: 'Dokumente',  symbol: '◎', path: '/docs'      },
   { id: 'fitness',  label: 'Fitness',    symbol: '◇', path: '/fitness'   },
   { id: 'calories', label: 'Kalorien',   symbol: '○', path: '/calories'  },
+  { id: 'stocks',   label: 'Aktien',     symbol: '◈', path: '/stocks'    },
 ]
 
 export function Home() {
@@ -14,7 +15,7 @@ export function Home() {
   return (
     <div className="min-h-screen bg-[#050909] flex flex-col items-center justify-center p-8">
       <div className="mb-12 text-center">
-        <p className="text-[11px] uppercase tracking-[0.6em] text-[#1a4040] mb-2">── personal ──</p>
+        <p className="text-[13px] uppercase tracking-[0.6em] text-[#3a7070] mb-2">── personal ──</p>
         <h1 className="text-[22px] uppercase tracking-[0.5em] text-[#00a0a0]">LIFE OS</h1>
       </div>
 
@@ -23,12 +24,12 @@ export function Home() {
           <button
             key={app.id}
             onClick={() => navigate(app.path)}
-            className="group flex flex-col items-center gap-3 p-6 border border-[#0f2828] hover:border-[#1a4040] bg-[#080e0e] hover:bg-[#0a1414] transition-all"
+            className="group flex flex-col items-center gap-3 p-6 border border-[#1e4040] hover:border-[#3a7070] bg-[#080e0e] hover:bg-[#0d1e1e] transition-all"
           >
             <span className="text-[28px] text-[#2a6060] group-hover:text-[#00a0a0] transition-colors">
               {app.symbol}
             </span>
-            <span className="text-[11px] uppercase tracking-[0.25em] text-[#2a6060] group-hover:text-[#5aacac] transition-colors">
+            <span className="text-[13px] uppercase tracking-[0.25em] text-[#2a6060] group-hover:text-[#5aacac] transition-colors">
               {app.label}
             </span>
           </button>

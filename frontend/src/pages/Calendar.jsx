@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { AppShell } from '../components/AppShell'
 import { api } from '../api/client'
+import { pad, parseDate } from '../utils'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const HOUR_HEIGHT = 64
@@ -19,15 +20,6 @@ const DE_DAYS  = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
 const DE_MONTH = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez']
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-function pad(n) { return String(n).padStart(2, '0') }
-
-// Backend returns naive datetimes (no Z) stored as UTC — force UTC parsing
-function parseDate(s) {
-  if (!s) return new Date()
-  if (s.endsWith('Z') || s.includes('+')) return new Date(s)
-  return new Date(s + 'Z')
-}
-
 function timeToY(hour, minute = 0) {
   return (hour - START_HOUR + minute / 60) * HOUR_HEIGHT
 }
@@ -84,27 +76,32 @@ function formatRange(view, days) {
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────
-function WorkPackageCard({ wp, onDelete }) {
+function WorkPackageCard({ wp, onDone, onDragStart: onListDragStart, onDragEnter }) {
   const handleDragStart = (e) => {
     e.dataTransfer.setData('application/json', JSON.stringify(wp))
     e.dataTransfer.effectAllowed = 'copy'
+    onListDragStart?.()
   }
 
   return (
     <div
       draggable
       onDragStart={handleDragStart}
-      className="group flex items-center gap-2 px-2 py-1.5 border border-[#1a4040] hover:border-[#2a6060] bg-[#0a1414] cursor-grab active:cursor-grabbing transition-colors"
+      onDragEnter={(e) => { e.preventDefault(); onDragEnter?.() }}
+      onDragOver={(e) => e.preventDefault()}
+      className="group flex items-center gap-2 px-2 py-1.5 border border-[#2a6060] hover:border-[#2a6060] bg-[#0d1e1e] cursor-grab active:cursor-grabbing transition-colors"
     >
-      <span className="text-[#1a4040] group-hover:text-[#2a6060] text-[14px] flex-shrink-0">⠿</span>
+      <span className="text-[#3a8080] group-hover:text-[#4a9090] text-[16px] flex-shrink-0">⠿</span>
       <div className="flex-1 min-w-0">
-        <p className="text-[12px] text-[#5aacac] truncate">{wp.title}</p>
-        <p className="text-[10px] text-[#2a6060]">{wp.estimated_hours}h</p>
+        <p className="text-[14px] text-[#5aacac] truncate">{wp.title}</p>
+        <p className="text-[12px] text-[#4a9090]">{wp.estimated_hours}h</p>
       </div>
       <button
-        onClick={() => onDelete(wp.id)}
-        className="opacity-0 group-hover:opacity-100 text-[#1a4040] hover:text-[#cc2222] text-[11px] transition-all flex-shrink-0"
-      >✕</button>
+        onClick={(e) => { e.stopPropagation(); onDone(wp.id) }}
+        onMouseDown={(e) => e.stopPropagation()}
+        title="Als erledigt markieren"
+        className="opacity-0 group-hover:opacity-100 w-4 h-4 border border-[#3a8080] hover:border-[#00a0a0] hover:bg-[#00a0a0] flex-shrink-0 transition-all"
+      />
     </div>
   )
 }
@@ -143,11 +140,11 @@ function CalendarEventBlock({
       style={{ top, height, backgroundColor: event.color + '22', borderLeft: `2px solid ${event.color}` }}
       onMouseDown={(e) => { if (e.button === 0) onStartMove(e) }}
     >
-      <p className="text-[11px] text-[#00cccc] truncate leading-tight pointer-events-none">{event.title}</p>
-      <p className="text-[10px] pointer-events-none">
+      <p className="text-[13px] text-[#00cccc] truncate leading-tight pointer-events-none">{event.title}</p>
+      <p className="text-[12px] pointer-events-none">
         {(isMoving || isResizing)
           ? <span className="text-[#00cccc]">{pad(sh)}:{pad(sm)} – {pad(eh)}:{pad(em)}</span>
-          : <span className="text-[#2a6060]">
+          : <span className="text-[#4a9090]">
               {pad(origStart.getHours())}:{pad(origStart.getMinutes())} –{' '}
               {pad(origEnd.getHours())}:{pad(origEnd.getMinutes())}
             </span>
@@ -156,7 +153,7 @@ function CalendarEventBlock({
       <button
         onClick={(e) => { e.stopPropagation(); onDelete(event.id) }}
         onMouseDown={(e) => e.stopPropagation()}
-        className="absolute top-0.5 right-1 opacity-0 group-hover:opacity-100 text-[#cc2222] text-[10px] transition-all z-30"
+        className="absolute top-0.5 right-1 opacity-0 group-hover:opacity-100 text-[#cc2222] text-[12px] transition-all z-30"
       >✕</button>
       {/* Resize handle */}
       <div
@@ -173,14 +170,30 @@ export function Calendar() {
   const [anchor, setAnchor]       = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d })
   const [events, setEvents]       = useState([])
   const [workPackages, setWPs]    = useState([])
+  const [workoutsToday, setWorkoutsToday] = useState([])
   const [dragOver, setDragOver]   = useState(null)   // { dayKey, hour, minute } — WP drag preview
-  const [newWP, setNewWP]         = useState('')
   // Move state
   const [moving, setMoving]       = useState(null)   // { event, grabOffsetY }
   const [movePos, setMovePos]     = useState(null)   // { top, dayKey }
   // Resize state
   const [resizing, setResizing]   = useState(null)   // { event }
   const [resizeHeight, setResizeHeight] = useState(null)
+  const [nowY, setNowY]           = useState(null)
+
+  const dragWPIdxRef = useRef(null)
+
+  const handleWPDragStart = (i) => { dragWPIdxRef.current = i }
+  const handleWPDragEnter = (i) => {
+    const from = dragWPIdxRef.current
+    if (from === null || from === i) return
+    setWPs(prev => {
+      const next = [...prev]
+      const [item] = next.splice(from, 1)
+      next.splice(i, 0, item)
+      return next
+    })
+    dragWPIdxRef.current = i
+  }
 
   const gridRef    = useRef(null)
   const dayColRefs = useRef({})   // dayKey → DOM element
@@ -196,6 +209,20 @@ export function Calendar() {
 
   useEffect(() => {
     api.getWorkPackages().then(setWPs).catch(() => {})
+    const todayIndex = (new Date().getDay() + 6) % 7  // 0=Mon
+    api.getWorkoutsToday(todayIndex).then(setWorkoutsToday).catch(() => {})
+  }, [])
+
+  // ── Current time indicator ──
+  useEffect(() => {
+    const update = () => {
+      const now = new Date()
+      const y = timeToY(now.getHours(), now.getMinutes())
+      setNowY(y >= 0 ? y : null)
+    }
+    update()
+    const id = setInterval(update, 60000)
+    return () => clearInterval(id)
   }, [])
 
   // ── Coordinate helpers ──
@@ -233,13 +260,14 @@ export function Calendar() {
     const endTime = new Date(startTime.getTime() + (wp.estimated_hours || 1) * 3600000)
 
     const tempId    = `temp-${Date.now()}`
+    const isWorkout = !!wp.isWorkout
     const tempEvent = {
       id: tempId, title: wp.title,
       start_time: startTime.toISOString(), end_time: endTime.toISOString(),
-      color: wp.color || '#00a0a0', work_package_id: wp.id,
+      color: wp.color || '#00a0a0',
+      work_package_id: isWorkout ? null : wp.id,
     }
     setEvents(prev => [...prev, tempEvent])
-    setWPs(prev => prev.filter(w => w.id !== wp.id))
 
     try {
       const created = await api.createCalendarEvent({
@@ -247,12 +275,12 @@ export function Calendar() {
         start_time: startTime.toISOString(),
         end_time: endTime.toISOString(),
         color: wp.color || '#00a0a0',
-        work_package_id: wp.id,
+        work_package_id: isWorkout ? null : wp.id,
       })
       setEvents(prev => prev.map(ev => ev.id === tempId ? created : ev))
     } catch {
       setEvents(prev => prev.filter(ev => ev.id !== tempId))
-      setWPs(prev => [...prev, wp])
+      if (!isWorkout) setWPs(prev => [...prev, wp])
     }
   }
 
@@ -333,21 +361,22 @@ export function Calendar() {
   // ── CRUD helpers ──
   const deleteEvent = async (id) => {
     const event = events.find(e => e.id === id)
-    await api.deleteCalendarEvent(id)
     setEvents(prev => prev.filter(e => e.id !== id))
-    if (event?.work_package_id) api.getWorkPackages().then(setWPs).catch(() => {})
+    try {
+      await api.deleteCalendarEvent(id)
+      if (event?.work_package_id) api.getWorkPackages().then(setWPs).catch(() => {})
+    } catch {
+      setEvents(prev => [...prev, event])
+    }
   }
 
-  const deleteWP = async (id) => {
-    await api.deleteWorkPackage(id)
+  const markWPDone = async (id) => {
     setWPs(prev => prev.filter(w => w.id !== id))
-  }
-
-  const addWP = async (e) => {
-    if (e.key !== 'Enter' || !newWP.trim()) return
-    const wp = await api.createWorkPackage({ title: newWP.trim(), estimated_hours: 1.0 })
-    setWPs(prev => [...prev, wp])
-    setNewWP('')
+    try {
+      await api.updatePackage(id, { status: 'done' })
+    } catch {
+      api.getWorkPackages().then(setWPs).catch(() => {})
+    }
   }
 
   const eventsForDay = (day) => {
@@ -369,59 +398,86 @@ export function Calendar() {
       >
 
         {/* ── Left Panel ── */}
-        <div className="w-[220px] flex-shrink-0 border-r border-[#0f2828] flex flex-col bg-[#050909]">
+        <div className="w-[220px] flex-shrink-0 border-r border-[#1e4a4a] flex flex-col bg-[#050909]">
 
           {/* View selector */}
-          <div className="flex border-b border-[#0f2828]">
+          <div className="flex border-b border-[#1e4a4a]">
             {VIEWS.map(v => (
               <button
                 key={v.id}
                 onClick={() => setView(v.id)}
-                className={`flex-1 py-2 text-[11px] uppercase tracking-[0.15em] transition-colors ${
+                className={`flex-1 py-2 text-[13px] uppercase tracking-[0.15em] transition-colors ${
                   view === v.id
                     ? 'text-[#00cccc] border-b-2 border-[#00a0a0]'
-                    : 'text-[#2a6060] hover:text-[#5aacac]'
+                    : 'text-[#4a9090] hover:text-[#5aacac]'
                 }`}
               >{v.label}</button>
             ))}
           </div>
 
           {/* Navigation */}
-          <div className="flex items-center justify-between px-3 py-2 border-b border-[#0f2828]">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-[#1e4a4a]">
             <button
               onClick={() => setAnchor(navigate(view, anchor, -1))}
-              className="text-[#2a6060] hover:text-[#5aacac] text-[16px] w-7 h-7 flex items-center justify-center transition-colors"
+              className="text-[#4a9090] hover:text-[#5aacac] text-[18px] w-7 h-7 flex items-center justify-center transition-colors"
             >‹</button>
-            <span className="text-[11px] text-[#5aacac] text-center flex-1 px-1">
+            <span className="text-[13px] text-[#5aacac] text-center flex-1 px-1">
               {formatRange(view, days)}
             </span>
             <button
               onClick={() => setAnchor(navigate(view, anchor, 1))}
-              className="text-[#2a6060] hover:text-[#5aacac] text-[16px] w-7 h-7 flex items-center justify-center transition-colors"
+              className="text-[#4a9090] hover:text-[#5aacac] text-[18px] w-7 h-7 flex items-center justify-center transition-colors"
             >›</button>
           </div>
 
           {/* Ungeplant */}
           <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col min-h-0">
+            {/* Today's workouts */}
+            {workoutsToday.length > 0 && (
+              <div className="px-2 pt-2 pb-1 space-y-1 border-b border-[#1e4a4a] flex-shrink-0">
+                <p className="text-[11px] uppercase tracking-[0.3em] text-[#3a8080] px-1 pb-0.5">── Heute</p>
+                {workoutsToday.map(w => {
+                  const handleDragStart = (e) => {
+                    e.dataTransfer.setData('application/json', JSON.stringify({
+                      id: w.id, title: w.name,
+                      estimated_hours: (w.duration_min || 60) / 60,
+                      color: w.color || '#00a0a0',
+                      isWorkout: true,
+                    }))
+                    e.dataTransfer.effectAllowed = 'copy'
+                  }
+                  return (
+                    <div
+                      key={w.id}
+                      draggable
+                      onDragStart={handleDragStart}
+                      className="group flex items-center gap-2 px-2 py-1.5 cursor-grab active:cursor-grabbing hover:bg-[#0d1e1e] transition-colors"
+                      style={{ borderLeft: `3px solid ${w.color || '#00a0a0'}` }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] truncate" style={{ color: w.color || '#00a0a0' }}>{w.name}</p>
+                        <p className="text-[11px] text-[#3a7070]">{w.duration_min} Min</p>
+                      </div>
+                      <span className="text-[#3a6060] group-hover:text-[#5a8080] text-[14px]">⠿</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
             <div className="px-3 pt-3 pb-2 flex-shrink-0">
-              <p className="text-[11px] uppercase tracking-[0.3em] text-[#1a4040]">── Ungeplant</p>
+              <p className="text-[13px] uppercase tracking-[0.3em] text-[#3a8080]">── Ungeplant</p>
             </div>
             <div className="flex-1 overflow-y-auto no-scrollbar px-2 space-y-1">
               {workPackages.length === 0 && (
-                <p className="text-[11px] text-[#1a4040] px-1">Keine Aufgaben.</p>
+                <p className="text-[13px] text-[#3a8080] px-1">Keine Aufgaben.</p>
               )}
-              {workPackages.map(wp => (
-                <WorkPackageCard key={wp.id} wp={wp} onDelete={deleteWP} />
+              {workPackages.map((wp, i) => (
+                <WorkPackageCard
+                  key={wp.id} wp={wp} onDone={markWPDone}
+                  onDragStart={() => handleWPDragStart(i)}
+                  onDragEnter={() => handleWPDragEnter(i)}
+                />
               ))}
-            </div>
-            <div className="px-2 py-2 border-t border-[#0f2828] flex-shrink-0">
-              <input
-                value={newWP}
-                onChange={e => setNewWP(e.target.value)}
-                onKeyDown={addWP}
-                placeholder="+ Aufgabe hinzufügen"
-                className="w-full bg-transparent text-[12px] text-[#5aacac] placeholder-[#1a4040] focus:outline-none px-1 py-1"
-              />
             </div>
           </div>
         </div>
@@ -430,12 +486,12 @@ export function Calendar() {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
           {/* Day headers */}
-          <div className="flex flex-shrink-0 border-b border-[#0f2828]" style={{ paddingLeft: 48 }}>
+          <div className="flex flex-shrink-0 border-b border-[#1e4a4a]" style={{ paddingLeft: 48 }}>
             {days.map(day => (
               <div
                 key={isoDay(day)}
-                className={`flex-1 text-center py-2 text-[12px] uppercase tracking-[0.15em] border-r border-[#0f2828] last:border-r-0 ${
-                  isToday(day) ? 'text-[#00cccc]' : 'text-[#2a6060]'
+                className={`flex-1 text-center py-2 text-[14px] uppercase tracking-[0.15em] border-r border-[#1e4a4a] last:border-r-0 ${
+                  isToday(day) ? 'text-[#00cccc]' : 'text-[#4a9090]'
                 }`}
               >
                 <span>{DE_DAYS[day.getDay()]} </span>
@@ -459,7 +515,7 @@ export function Calendar() {
                 {HOURS.map(h => (
                   <div
                     key={h}
-                    className="flex items-start justify-end pr-2 text-[10px] text-[#1a4040]"
+                    className="flex items-start justify-end pr-2 text-[12px] text-[#3a8080]"
                     style={{ height: HOUR_HEIGHT }}
                   >
                     <span className="-mt-2">{h}:00</span>
@@ -474,7 +530,7 @@ export function Calendar() {
                   <div
                     key={dayKey}
                     ref={el => { dayColRefs.current[dayKey] = el }}
-                    className="flex-1 relative border-r border-[#0f2828] last:border-r-0"
+                    className="flex-1 relative border-r border-[#1e4a4a] last:border-r-0"
                     style={{ minHeight: HOURS.length * HOUR_HEIGHT }}
                     onDragOver={e => handleDragOver(e, dayKey)}
                     onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(null) }}
@@ -484,10 +540,21 @@ export function Calendar() {
                     {HOURS.map(h => (
                       <div
                         key={h}
-                        className="absolute left-0 right-0 border-t border-[#0f2828]"
+                        className="absolute left-0 right-0 border-t border-[#112828]"
                         style={{ top: (h - START_HOUR) * HOUR_HEIGHT }}
                       />
                     ))}
+
+                    {/* Current time indicator */}
+                    {nowY != null && isoDay(new Date()) === dayKey && (
+                      <div
+                        className="absolute left-0 right-0 flex items-center pointer-events-none z-30"
+                        style={{ top: nowY }}
+                      >
+                        <div className="w-2 h-2 rounded-full bg-[#00cccc] flex-shrink-0 -ml-1" />
+                        <div className="flex-1 h-px bg-[#00cccc] opacity-60" />
+                      </div>
+                    )}
 
                     {/* WP drag: ghost block */}
                     {dragOver?.dayKey === dayKey && (
@@ -503,7 +570,7 @@ export function Calendar() {
                         className="absolute left-0 right-0 flex items-center pointer-events-none z-20"
                         style={{ top: timeToY(dragOver.hour, dragOver.minute) }}
                       >
-                        <span className="text-[10px] text-[#00cccc] w-12 pl-1 flex-shrink-0 tabular-nums">
+                        <span className="text-[12px] text-[#00cccc] w-12 pl-1 flex-shrink-0 tabular-nums">
                           {pad(dragOver.hour)}:{pad(dragOver.minute)}
                         </span>
                         <div className="flex-1 h-px bg-[#00cccc] opacity-60" />

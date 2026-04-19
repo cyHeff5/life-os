@@ -7,6 +7,7 @@ import { Projects } from './pages/Projects'
 import { Docs } from './pages/Docs'
 import { Fitness } from './pages/Fitness'
 import { Calories } from './pages/Calories'
+import { Stocks } from './pages/Stocks'
 
 function Login({ onLogin }) {
   const [password, setPassword] = useState('')
@@ -30,9 +31,9 @@ function Login({ onLogin }) {
 
   return (
     <div className="min-h-screen bg-[#050909] flex items-center justify-center">
-      <div className="border border-[#1a4040] p-8 w-72">
+      <div className="border border-[#3a7070] p-8 w-72">
         <div className="mb-8 text-center">
-          <p className="text-[11px] uppercase tracking-[0.6em] text-[#1a4040] mb-1">── personal ──</p>
+          <p className="text-[13px] uppercase tracking-[0.6em] text-[#3a7070] mb-1">── personal ──</p>
           <h1 className="text-[18px] uppercase tracking-[0.5em] text-[#00a0a0]">LIFE OS</h1>
         </div>
         <form onSubmit={handleSubmit}>
@@ -42,15 +43,15 @@ function Login({ onLogin }) {
             onChange={e => setPassword(e.target.value)}
             placeholder="passwort"
             autoFocus
-            className="w-full bg-transparent border border-[#1a4040] px-3 py-2 text-[14px] text-[#00cccc] placeholder-[#2a6060] focus:outline-none focus:border-[#2a6060] mb-4 font-mono"
+            className="w-full bg-transparent border border-[#3a7070] px-3 py-2 text-[16px] text-[#00cccc] placeholder-[#2a6060] focus:outline-none focus:border-[#2a6060] mb-4 font-mono"
           />
           {error && (
-            <p className="text-[#cc2222] text-[11px] uppercase tracking-widest mb-3">falsches passwort</p>
+            <p className="text-[#cc2222] text-[13px] uppercase tracking-widest mb-3">falsches passwort</p>
           )}
           <button
             type="submit"
             disabled={loading}
-            className="w-full border border-[#1a4040] hover:border-[#2a6060] text-[#5aacac] hover:text-[#00cccc] py-2 text-[12px] uppercase tracking-[0.25em] transition-colors disabled:opacity-40"
+            className="w-full border border-[#3a7070] hover:border-[#2a6060] text-[#5aacac] hover:text-[#00cccc] py-2 text-[14px] uppercase tracking-[0.25em] transition-colors disabled:opacity-40"
           >
             {loading ? '···' : 'Einloggen'}
           </button>
@@ -74,6 +75,7 @@ export default function App() {
         <Route path="/docs"      element={<Docs />} />
         <Route path="/fitness"   element={<Fitness />} />
         <Route path="/calories"  element={<Calories />} />
+        <Route path="/stocks"    element={<Stocks />} />
         <Route path="*"          element={<Navigate to="/" />} />
       </Routes>
     </BrowserRouter>
